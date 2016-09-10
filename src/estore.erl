@@ -130,7 +130,8 @@ open_chunk(EStore, T) ->
 close_file(EStore = #estore{file = undefined}) ->
     EStore;
 close_file(EStore = #estore{file = F}) when F /= undefined ->
-    ok = efile:close(F),
+    %% TODO: should we check if the file closes correctly?
+    efile:close(F),
     EStore#estore{file = undefined, chunk = undefined}.
 
 chunk(#estore{size = S}, T) ->
@@ -141,7 +142,6 @@ open_estore(EStore = #estore{dir = Dir}) ->
     ExpectedIdx = <<?VSN:16/integer,
                     (EStore#estore.size):64/integer,
                     (EStore#estore.grace):64/integer>>,
-    io:format("idx: ~s~n", [IdxFile]),
     case file:read_file(IdxFile) of
         {ok, ExpectedIdx} ->
             {ok, EStore};

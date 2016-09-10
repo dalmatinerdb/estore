@@ -69,26 +69,19 @@ new(Name) ->
     new(Name, []).
 -spec new(string(), [opt()]) -> {ok, efile()}.
 new(Name, Opts) ->
-    io:format("new: ~s~n", [Name]),
     EFile = #efile{read_size = RS} = apply_opts(#efile{name = Name}, Opts),
-    case file:open(idx(EFile), [read, write | ?OPTS]) of
-        {ok, Idx} ->
-            case file:read(Idx, RS) of
-                {ok, Data} ->
-                    read_index(Idx, EFile, Data);
-                _ ->
-                    file:write(Idx, <<?VSN:16, (EFile#efile.grace):128/integer>>),
-                    file:position(Idx, eof),
-                    {ok, EFile#efile{idx = Idx}}
-            end;
-        {error,enoent} ->
-            io:format("noent~n"),
-            {ok, Idx} = file:open(idx(EFile), [write | ?OPTS]),
-            file:write(Idx, <<?VSN:16, (EFile#efile.grace):128/integer>>),
-            file:position(Idx, eof),
-            {ok, EFile#efile{idx = Idx}}
+    IdxFile = idx(EFile),
+    case filelib:is_file(IdxFile) of
+        true ->
+            {ok, Idx} = file:open(IdxFile, [read, write | ?OPTS]),
+            {ok, Data} = file:read(Idx, RS),
+            read_index(Idx, EFile, Data);
+        _ ->
+            {ok, EFile}
     end.
 -spec close(efile()) -> ok.
+close(#efile{estore = undefined, idx = undefined}) ->
+    ok;
 close(#efile{estore = undefined, idx = Idx}) ->
     file:close(Idx);
 close(#efile{estore = EStore, idx = Idx}) ->
@@ -164,6 +157,11 @@ read_index_(Idx, EFile = #efile{idx_t = Tree},
             <<Time:128/integer, Pos:64/integer, Data/binary>>) ->
     Tree1 = gb_trees:insert(Time, Pos, Tree),
     read_index_(Idx, EFile#efile{idx_t = Tree1, last = Time}, Data).
+
+update_idx(EFile = #efile{idx = undefined}, Pos, Old, New) ->
+    {ok, Idx} = file:open(idx(EFile), [read, write | ?OPTS]),
+    file:write(Idx, <<?VSN:16, (EFile#efile.grace):128/integer>>),
+    update_idx(EFile#efile{idx = Idx}, Pos, Old, New);
 
 update_idx(EFile = #efile{idx = Idx, idx_t = Tree}, Pos, Old, New)
   when New > Old; Old =:= undefined ->
