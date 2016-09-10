@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(estore).
 
--export([new/2, close/1, append/2, append/3, read/3, make_splits/3]).
+-export([new/2, close/1, append/2, read/3, make_splits/3]).
 -export_type([estore/0]).
 
 -define(VSN, 1).
@@ -16,7 +16,7 @@
 
 -record(estore, {
           size = 1 :: pos_integer(),
-          grace = 0 :: pos_integer(),
+          grace = 0 :: non_neg_integer(),
           file :: efile:efile(),
           chunk :: pos_integer(),
           dir :: string()
@@ -61,22 +61,31 @@ close(EStore) ->
     close_file(EStore),
     ok.
 
-append(T, E, EStore) ->
-    append([{T, E}], EStore).
-
 -spec append([efile:event()], estore()) ->
                     {ok, estore()}.
 append([], EStore) ->
     EStore;
-append([{T, _} = E | Es], EStore) ->
+append([{T, _, _} = E | Es], EStore) ->
     C = chunk(EStore, T),
     write_chunk(EStore, C, [E], Es).
 
-read(Start, End, EStore) ->
-    Fun = fun(Time, Event, Acc) ->
-                  [{Time, Event} | Acc]
+-spec read(Start  :: pos_integer(),
+           End    :: pos_integer(),
+           Estore :: estore()) ->
+                  {ok, [efile:event()], estore()}. 
+
+read(Start, End, EStore) when Start < End->
+    Fun = fun(Time, ID, Event, Acc) ->
+                  [{Time, ID, Event} | Acc]
           end,
     fold(Start, End, Fun, [] , EStore).
+
+-spec fold(Start  :: pos_integer(),
+           End    :: pos_integer(),
+           Fun    :: efile:fold_fun(),
+           Acc    :: any(),
+           EStore :: estore()) ->
+                  {ok, any(), estore()}.
 
 fold(Start, End, Fun, Acc, EStore = #estore{size = S}) ->
     Splits = make_splits(Start, End - Start, S),
@@ -94,7 +103,7 @@ fold_fun({Start, End}, {Fun, Acc, EStore}) ->
 
 write_chunk(EStore, _C, Res, []) ->
     append_sorted(EStore, lists:sort(Res));
-write_chunk(EStore, C, Acc, [{Tin, _} = E | Es])
+write_chunk(EStore, C, Acc, [{Tin, _, _} = E | Es])
   when Tin div EStore#estore.size =:= C ->
     write_chunk(EStore, C, [E | Acc], Es);
 write_chunk(EStore, _C, Res, Es) ->
@@ -102,17 +111,23 @@ write_chunk(EStore, _C, Res, Es) ->
     append(Es, EStore).
 
 
-append_sorted(EStore, [{T, _} | _] = Es) ->
+append_sorted(EStore, [{T, _, _} | _] = Es) ->
     {ok, EStore1}  = open_chunk(EStore, T),
     {ok, F1} = efile:append_ordered(Es, EStore1#estore.file),
     {ok, EStore1#estore{file = F1}}.
 
 apply_opts(Estore, []) ->
     Estore;
+apply_opts(Estore, [{file_size, N} | R])
+  when is_integer(N), N > 0 ->
+    apply_opts(Estore#estore{size = N}, R);
 apply_opts(Estore, [{file_size, N} | R]) ->
-    apply_opts(Estore#estore{size = to_ns(N)}, R);
+    apply_opts(Estore, [{file_size, to_ns(N)} | R]);
+apply_opts(Estore, [{grace_period, N} | R])
+  when is_integer(N), N > 0 ->
+    apply_opts(Estore#estore{grace = N}, R);
 apply_opts(Estore, [{grace_period, N} | R]) ->
-    apply_opts(Estore#estore{grace = to_ns(N)}, R);
+    apply_opts(Estore, [{grace_period, to_ns(N)} | R]);
 apply_opts(Estore, [_ | R]) ->
     apply_opts(Estore, R).
 
