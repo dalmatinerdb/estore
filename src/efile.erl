@@ -39,8 +39,8 @@
 -module(efile).
 
 %% API exports
--export([new/1, new/2, close/1, ordered_append/2, append/3, fold/5, read/3]).
-
+-export([new/1, new/2, close/1, append_ordered/2, append/3, fold/5, read/3]).
+-export_type([efile/0, event/0]).
 -define(OPTS, [raw, binary]).
 -define(VSN, 1).
 -record(efile, {
@@ -53,68 +53,65 @@
           name,
           read_size = 4 * 1024
          }).
+-opaque efile() :: #efile{}.
+
+-type event() ::
+        {pos_integer(), term()}.
+-type opt() :: {grace, pos_integer()}.
 
 
 %%====================================================================
 %% API functions
 %%====================================================================
 
+-spec new(string()) -> {ok, efile()}.
 new(Name) ->
     new(Name, []).
+-spec new(string(), [opt()]) -> {ok, efile()}.
 new(Name, Opts) ->
+    io:format("new: ~s~n", [Name]),
     EFile = #efile{read_size = RS} = apply_opts(#efile{name = Name}, Opts),
-    {ok, Idx} = file:open(idx(EFile), [read, write, append | ?OPTS]),
-    case file:read(Idx, RS) of
-        {ok, Data} ->
-            read_index(Idx, EFile, Data);
-        _ ->
+    case file:open(idx(EFile), [read, write | ?OPTS]) of
+        {ok, Idx} ->
+            case file:read(Idx, RS) of
+                {ok, Data} ->
+                    read_index(Idx, EFile, Data);
+                _ ->
+                    file:write(Idx, <<?VSN:16, (EFile#efile.grace):128/integer>>),
+                    file:position(Idx, eof),
+                    {ok, EFile#efile{idx = Idx}}
+            end;
+        {error,enoent} ->
+            io:format("noent~n"),
+            {ok, Idx} = file:open(idx(EFile), [write | ?OPTS]),
             file:write(Idx, <<?VSN:16, (EFile#efile.grace):128/integer>>),
             file:position(Idx, eof),
             {ok, EFile#efile{idx = Idx}}
     end.
-
-read_index(Idx,
-           EFile = #efile{grace = Grace},
-           <<?VSN:16, Grace:128/integer, Data/binary>>) ->
-    read_index_(Idx, EFile, Data);
-read_index(_, _, _) ->
-    {error, invalid_index}.
-
-read_index_(Idx, EFile = #efile{read_size = RS}, <<>>) ->
-    case file:read(Idx, RS) of
-        {ok, Data} ->
-            read_index_(Idx, EFile, Data);
-        eof ->
-            {ok, EFile#efile{idx = Idx}}
-    end;
-read_index_(Idx, EFile = #efile{idx_t = Tree},
-            <<Time:128/integer, Pos:64/integer, Data/binary>>) ->
-    Tree1 = gb_trees:insert(Time, Pos, Tree),
-    read_index_(Idx, EFile#efile{idx_t = Tree1, last = Time}, Data).
-
+-spec close(efile()) -> ok.
 close(#efile{estore = undefined, idx = Idx}) ->
     file:close(Idx);
 close(#efile{estore = EStore, idx = Idx}) ->
     file:close(Idx),
     file:close(EStore).
 
-ordered_append([], EFile) ->
+append_ordered([], EFile) ->
     {ok, EFile};
 
-ordered_append(Es, EFile = #efile{estore = undefined}) ->
+append_ordered(Es, EFile = #efile{estore = undefined}) ->
     {ok, EStore} = file:open(estore(EFile), [write, append | ?OPTS]),
-    ordered_append(Es, EFile#efile{estore = EStore});
+    append_ordered(Es, EFile#efile{estore = EStore});
 
-ordered_append([{Time, Event} | Es], EFile = #efile{last = Last, grace = Grace})
+append_ordered([{Time, Event} | Es], EFile = #efile{last = Last, grace = Grace})
   when is_integer(Time),
        is_integer(Last),
        Time + Grace < Last ->
     {ok, Recon} = file:open(recon(EFile), [write, append | ?OPTS]),
     ok = file:write(Recon, serialize([{Time, Event}])),
     ok = file:close(Recon),
-    ordered_append(Es, EFile);
+    append_ordered(Es, EFile);
 
-ordered_append(Es, EFile = #efile{last = Last, estore = EStore}) ->
+append_ordered(Es, EFile = #efile{last = Last, estore = EStore}) ->
     {Time, _} = lists:last(Es),
     Max = case Last of
               undefined -> Time;
@@ -127,7 +124,7 @@ ordered_append(Es, EFile = #efile{last = Last, estore = EStore}) ->
 
 
 append(Time, Event, EFile) ->
-    ordered_append([{Time, Event}], EFile).
+    append_ordered([{Time, Event}], EFile).
 
 read(Start, End, EFile) ->
     Fun = fun(Time, Event, Acc) ->
@@ -148,6 +145,26 @@ fold(Start, End, Fun, Acc, EFile) ->
 %%====================================================================
 %% Internal functions
 %%====================================================================
+
+read_index(Idx,
+           EFile = #efile{grace = Grace},
+           <<?VSN:16, Grace:128/integer, Data/binary>>) ->
+    read_index_(Idx, EFile, Data);
+read_index(_, _, _) ->
+    {error, invalid_index}.
+
+read_index_(Idx, EFile = #efile{read_size = RS}, <<>>) ->
+    case file:read(Idx, RS) of
+        {ok, Data} ->
+            read_index_(Idx, EFile, Data);
+        eof ->
+            {ok, EFile#efile{idx = Idx}}
+    end;
+read_index_(Idx, EFile = #efile{idx_t = Tree},
+            <<Time:128/integer, Pos:64/integer, Data/binary>>) ->
+    Tree1 = gb_trees:insert(Time, Pos, Tree),
+    read_index_(Idx, EFile#efile{idx_t = Tree1, last = Time}, Data).
+
 update_idx(EFile = #efile{idx = Idx, idx_t = Tree}, Pos, Old, New)
   when New > Old; Old =:= undefined ->
     Tree1 = gb_trees:insert(New, Pos, Tree),
@@ -156,8 +173,6 @@ update_idx(EFile = #efile{idx = Idx, idx_t = Tree}, Pos, Old, New)
     EFile1;
 update_idx(EFile, _Pos, _Old, _New) ->
     EFile.
-
-
 
 read_recon(Start, End, EFile = #efile{read_size = ReadSize},
            Fun, Acc, undefined, RAcc, Recon) ->
@@ -168,8 +183,7 @@ read_recon(Start, End, EFile = #efile{read_size = ReadSize},
             read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon)
     end;
 
-read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon) ->
-    file:close(Recon),
+read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, undefined) ->
     case file:open(estore(EFile), [read | ?OPTS]) of
         {ok, EStore} ->
             read(Start, End, EFile, Fun, Acc, undefined, RAcc, EStore);
@@ -178,6 +192,11 @@ read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon) ->
                                 Fun(RTime, binary_to_term(REvent), AccIn)
                         end, Acc, RAcc)
     end;
+
+read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon) ->
+    file:close(Recon),
+    read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, undefined);
+
 
 read_recon(Start, End, EFile, Fun, Acc,
            <<Size:64/integer, Time:128/integer, _:Size/binary, R/binary>>,

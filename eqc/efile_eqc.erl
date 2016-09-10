@@ -74,5 +74,7 @@ ensure_nano(X) when X > 1400000000000000000 ->
     X;
 ensure_nano(X) when X > 1400000000000000 ->
     erlang:convert_time_unit(X, micro_seconds, nano_seconds);
+ensure_nano(X) when X > 1400000000000 ->
+    erlang:convert_time_unit(X, milli_seconds, nano_seconds).
 ensure_nano(X) ->
     erlang:convert_time_unit(X, seconds, nano_seconds).
