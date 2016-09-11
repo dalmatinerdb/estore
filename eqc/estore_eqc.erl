@@ -7,8 +7,12 @@
 -define(M, <<"metric">>).
 -compile({no_auto_import,[time/0]}).
 
+
 time() ->
-    ?LET(I, int(), 1470000000000000000 + erlang:abs(ensure_nano(I))).
+    ?LET(I, int(), 1470000000000000000 + erlang:abs(to_nano(I))).
+
+pos_int() ->
+    ?LET(I, int(), abs(I) + 1).
 
 store(FileSize) ->
     ?SIZED(Size, store(Size, FileSize)).
@@ -34,7 +38,7 @@ append(Size, FileSize) ->
              {call, dict, append, [Time, {Time, Event}, T]}})).
 
 append(Time, Event, Store) ->
-    {ok, Store1} = estore:append(Time, Event, Store),
+    {ok, Store1} = estore:append([{Time, <<Time:160>>, Event}], Store),
     Store1.
 
 store(Size, FileSize) ->
@@ -46,7 +50,7 @@ store(Size, FileSize) ->
                    {1, reopen(Size, FileSize)}]) || Size > 0])).
 
 start_end() ->
-    ?SUCHTHAT({S, E}, {time(), time()}, S >= E).
+    ?SUCHTHAT({S, E}, {time(), time()}, S =< E).
 
 fetch(Start, End, Dict) ->
     L = dict:to_list(Dict),
@@ -57,9 +61,12 @@ fetch(Start, End, Dict) ->
               T =< End])).
 
 file_size() ->
-    ?SUCHTHAT(X, int(), X > 0).
+    ?LET(X, pos_int(), to_nano(X)).
 
-prop_comp_comp() ->
+to_nano(X) ->
+    erlang:convert_time_unit(X, seconds, nano_seconds).
+
+prop_comp_store() ->
     ?FORALL(
        FileSize, file_size(),
        ?FORALL({ST, {Start, End}}, {store(FileSize), start_end()},
@@ -68,18 +75,33 @@ prop_comp_comp() ->
                    os:cmd("mkdir " ++ ?DIR),
                    {Store, Dict} = eval(ST),
                    {ok, SR, _S1} = estore:read(Start, End, Store),
-                   SR1 = lists:sort(SR),
+                   SR1 = lists:sort([{T, E} || {T, _, E} <- SR]),
                    estore:close(Store),
                    TR = fetch(Start, End, Dict),
                    ?WHENFAIL(io:format("~p /= ~p~n", [SR1, TR]),
                              SR1 == TR)
                end)).
 
-ensure_nano(X) when X > 1400000000000000000 ->
-    X;
-ensure_nano(X) when X > 1400000000000000 ->
-    erlang:convert_time_unit(X, micro_seconds, nano_seconds);
-ensure_nano(X) when X > 1400000000000 ->
-    erlang:convert_time_unit(X, milli_seconds, nano_seconds);
-ensure_nano(X) ->
-    erlang:convert_time_unit(X, seconds, nano_seconds).
+split_range() ->
+    ?LET({Start, Count, Size},
+         {pos_int(), pos_int(), pos_int()},
+         {Start, Count, Size + 1}).
+
+prop_splits() ->
+    ?FORALL({Start, Count, Size}, split_range(),
+            begin
+                Splits = estore:make_splits(Start, Start + Count - 1, Size),
+                Sum = test_splits(Splits, 0, Size),
+                ?WHENFAIL(io:format("~p: ~p~n", [Sum, Splits]),
+                          Sum =:= Count)
+            end).
+
+test_splits([], Sum, _) ->
+    Sum;
+test_splits([{S, E} | R], Sum, Size) ->
+    case (S div Size =:= E div Size) of
+        false ->
+            Sum;
+        true ->
+            test_splits(R, Sum + (E - S) + 1, Size)
+    end.

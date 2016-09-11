@@ -39,7 +39,7 @@
 -module(efile).
 
 %% API exports
--export([new/1, new/2, close/1, append_ordered/2, fold/5, read/3]).
+-export([new/1, new/2, close/1, append/2, fold/5, read/3]).
 -export_type([efile/0, event/0, fold_fun/0]).
 -define(OPTS, [raw, binary]).
 -define(VSN, 1).
@@ -94,28 +94,28 @@ close(#efile{estore = EStore, idx = Idx}) ->
     file:close(Idx),
     file:close(EStore).
 
--spec append_ordered(Events :: [event()],
-                     EFile  :: efile()) ->
-    {ok, efile()}.
+-spec append(Events :: [event()],
+             EFile  :: efile()) ->
+                    {ok, efile()}.
 
-append_ordered([], EFile) ->
+append([], EFile) ->
     {ok, EFile};
 
-append_ordered(Es, EFile = #efile{estore = undefined}) ->
+append(Es, EFile = #efile{estore = undefined}) ->
     {ok, EStore} = file:open(estore(EFile), [write, append | ?OPTS]),
-    append_ordered(Es, EFile#efile{estore = EStore});
+    append(Es, EFile#efile{estore = EStore});
 
-append_ordered([{Time, _, _} = E | Es],
-               EFile = #efile{last = Last, grace = Grace})
+append([{Time, _, _} = E | Es],
+       EFile = #efile{last = Last, grace = Grace})
   when is_integer(Time),
        is_integer(Last),
        Time + Grace < Last ->
     {ok, Recon} = file:open(recon(EFile), [write, append | ?OPTS]),
     ok = file:write(Recon, serialize([E])),
     ok = file:close(Recon),
-    append_ordered(Es, EFile);
+    append(Es, EFile);
 
-append_ordered(Es, EFile = #efile{last = Last, estore = EStore}) ->
+append(Es, EFile = #efile{last = Last, estore = EStore}) ->
     {Time, ID, _} = lists:last(Es),
     Max = case Last of
               undefined -> Time;
@@ -131,7 +131,7 @@ append_ordered(Es, EFile = #efile{last = Last, estore = EStore}) ->
            Efile :: efile()) ->
                   {ok, [event()], efile()}.
 
-read(Start, End, EFile) when Start < End ->
+read(Start, End, EFile) when Start =< End ->
     Fun = fun(Time, ID, Event, Acc) ->
                   [{Time, ID, Event} | Acc]
           end,
@@ -144,7 +144,7 @@ read(Start, End, EFile) when Start < End ->
            EFile :: efile()) ->
                   {ok, any(), efile()}.
 fold(Start, End, Fun, Acc, EFile)
-  when Start < End->
+  when Start =< End->
     Acc1 =
         case file:open(recon(EFile), [read | ?OPTS]) of
             {ok, Recon} ->
@@ -190,7 +190,16 @@ update_idx(EFile = #efile{idx = Idx, idx_t = Tree}, Pos, ID, Old, New)
     EFile1;
 update_idx(EFile, _Pos, _Old, _ID, _New) ->
     EFile.
-
+-spec read_recon(
+        Start :: pos_integer(),
+        End :: pos_integer(),
+        EFile  :: efile(),
+        Fun :: fold_fun(),
+        Acc :: term(),
+        Data :: undefined | binary(),
+        RAcc :: [event()],
+        File :: file:fd() | undefined) ->
+                        term().
 read_recon(Start, End, EFile = #efile{read_size = ReadSize},
            Fun, Acc, undefined, RAcc, Recon) ->
     case file:read(Recon, ReadSize) of
@@ -216,7 +225,7 @@ read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon) ->
 
 
 read_recon(Start, End, EFile, Fun, Acc,
-           <<Size:64/integer, Time:128/integer, _:Size/binary, R/binary>>,
+           <<Size:64/integer, Time:128/integer, _ID:20/binary, _:Size/binary, R/binary>>,
            RAcc, Recon)
   when Time < Start;
        Time > End ->
@@ -253,8 +262,8 @@ read(Start, End, EFile = #efile{read_size = ReadSize, idx_t = Tree},
         {ok, Data} ->
             read(Start, End, EFile, Fun, Acc, Data, RAcc, EStore);
         _ ->
-            lists:foldl(fun({RTime, REvent}, AccIn) ->
-                                Fun(RTime, binary_to_term(REvent), AccIn)
+            lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
+                                Fun(RTime, RID, binary_to_term(REvent), AccIn)
                         end, Acc, RAcc)
     end;
 
@@ -264,8 +273,8 @@ read(_Start, End, #efile{grace  = Grace}, Fun, Acc,
   when Time > End + Grace ->
     file:close(EStore),
     %% TODO: read recon file
-    lists:foldl(fun({RTime, REvent}, AccIn) ->
-                        Fun(RTime, binary_to_term(REvent), AccIn)
+    lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
+                        Fun(RTime, RID, binary_to_term(REvent), AccIn)
                 end, Acc, RAcc);
 
 read(Start, End, EFile, Fun, Acc,

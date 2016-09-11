@@ -15,3 +15,5 @@ logs
 _build
 test
 current_counterexample.eqc
+.eqc
+.eqc-info

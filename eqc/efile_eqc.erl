@@ -34,7 +34,7 @@ append(Size) ->
              {call, dict, append, [Time, {Time, Event}, T]}})).
 
 append(Time, Event, Store) ->
-    {ok, Store1} = efile:append(Time, Event, Store),
+    {ok, Store1} = efile:append([{Time, <<(erlang:unique_integer()):160>>, Event}], Store),
     Store1.
 
 store(Size) ->
@@ -46,7 +46,7 @@ store(Size) ->
                    {1, reopen(Size)}]) || Size > 0])).
 
 start_end() ->
-    ?SUCHTHAT({S, E}, {time(), time()}, S >= E).
+    ?SUCHTHAT({S, E}, {time(), time()}, S =< E).
 
 fetch(Start, End, Dict) ->
     L = dict:to_list(Dict),
@@ -56,17 +56,18 @@ fetch(Start, End, Dict) ->
               T >= Start,
               T =< End])).
 
-prop_comp_comp() ->
+prop_comp_file() ->
     ?FORALL({ST, {Start, End}}, {store(), start_end()},
             begin
                 os:cmd("rm -r " ++ ?DIR),
                 os:cmd("mkdir " ++ ?DIR),
                 {Store, Dict} = eval(ST),
                 {ok, SR, _S1} = efile:read(Start, End, Store),
-                SR1 = lists:sort(SR),
+                SR1 = lists:sort([{T, E} || {T, _, E} <- SR]),
                 efile:close(Store),
                 TR = fetch(Start, End, Dict),
-                ?WHENFAIL(io:format("~p /= ~p~n", [SR1, TR]),
+                ?WHENFAIL(io:format("~p -> ~p~n~p /=~n~p~n",
+                                    [Start, End, SR1, TR]),
                           SR1 == TR)
            end).
 

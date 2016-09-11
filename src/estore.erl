@@ -72,9 +72,9 @@ append([{T, _, _} = E | Es], EStore) ->
 -spec read(Start  :: pos_integer(),
            End    :: pos_integer(),
            Estore :: estore()) ->
-                  {ok, [efile:event()], estore()}. 
+                  {ok, [efile:event()], estore()}.
 
-read(Start, End, EStore) when Start < End->
+read(Start, End, EStore) when Start =< End->
     Fun = fun(Time, ID, Event, Acc) ->
                   [{Time, ID, Event} | Acc]
           end,
@@ -88,7 +88,7 @@ read(Start, End, EStore) when Start < End->
                   {ok, any(), estore()}.
 
 fold(Start, End, Fun, Acc, EStore = #estore{size = S}) ->
-    Splits = make_splits(Start, End - Start, S),
+    Splits = make_splits(Start, End, S),
     {_, Acc1, EStore1} = lists:foldl(fun fold_fun/2, {Fun, Acc, EStore}, Splits),
     {ok, Acc1, EStore1}.
 
@@ -113,7 +113,7 @@ write_chunk(EStore, _C, Res, Es) ->
 
 append_sorted(EStore, [{T, _, _} | _] = Es) ->
     {ok, EStore1}  = open_chunk(EStore, T),
-    {ok, F1} = efile:append_ordered(Es, EStore1#estore.file),
+    {ok, F1} = efile:append(Es, EStore1#estore.file),
     {ok, EStore1#estore{file = F1}}.
 
 apply_opts(Estore, []) ->
@@ -190,19 +190,16 @@ to_ns({X, us}) when is_integer(X), X > 0 ->
 to_ns({X, ns}) when is_integer(X), X > 0 ->
     X.
 
-make_splits(Time, Count, Size) ->
-    make_splits(Time, Count, Size, []).
+make_splits(Time, End, Size)
+  when Time div Size =:= End div Size ->
+    [{Time, End}];
+make_splits(Time, End, Size) ->
+    make_splits(Time, End, Size, []).
 
-make_splits(Time, 0, _Size, Acc) ->
-    lists:reverse([{Time, Time} | Acc]);
-
-make_splits(Time, Count, Size, Acc) ->
-    Base = (Time div Size)*Size,
-    case Time - Base of
-        D when (D + Count) < Size ->
-            lists:reverse([{Time, Time + Count} | Acc]);
-        D ->
-            Inc = Size-D,
-            make_splits(Time + Inc, Count - Inc, Size,
-                        [{Time, Time + Inc} | Acc])
-    end.
+make_splits(Time, End, Size, Acc)
+  when Time div Size =:= End div Size ->
+    lists:reverse([{Time, End} | Acc]);
+make_splits(Time, End, Size, Acc) ->
+    Next = ((Time + Size) div Size) * Size,
+    make_splits(Next, End, Size,
+                [{Time, Next - 1} | Acc]).
