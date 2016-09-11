@@ -8,7 +8,7 @@
 -compile({no_auto_import,[time/0]}).
 
 time() ->
-    ?LET(I, int(), 1470000000000000000 + erlang:abs(ensure_nano(I))).
+    ?LET(I, int(), 1470000000000000000 + erlang:abs(estore_eqc:to_nano(I))).
 
 store() ->
     ?SIZED(Size, store(Size)).
@@ -70,12 +70,3 @@ prop_comp_file() ->
                                     [Start, End, SR1, TR]),
                           SR1 == TR)
            end).
-
-ensure_nano(X) when X > 1400000000000000000 ->
-    X;
-ensure_nano(X) when X > 1400000000000000 ->
-    erlang:convert_time_unit(X, micro_seconds, nano_seconds);
-ensure_nano(X) when X > 1400000000000 ->
-    erlang:convert_time_unit(X, milli_seconds, nano_seconds);
-ensure_nano(X) ->
-    erlang:convert_time_unit(X, seconds, nano_seconds).
