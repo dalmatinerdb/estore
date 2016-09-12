@@ -9,7 +9,7 @@
   {env,[]},
   {modules, []},
 
-  {maintainers, []},
-  {licenses, []},
-  {links, []}
+  {maintainers, ["Heinz N. Gies"]},
+  {licenses, ["MIT"]},
+  {links, [{"Github", "https://github.com/dalmatinerdb/estore"}]}
  ]}.

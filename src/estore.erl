@@ -8,7 +8,8 @@
 %%%-------------------------------------------------------------------
 -module(estore).
 
--export([new/2, close/1, append/2, read/3, make_splits/3]).
+-export([new/2, close/1, append/2, read/3, make_splits/3,
+         event/1, eid/1, eid/0]).
 -export_type([estore/0]).
 
 -define(VSN, 1).
@@ -38,6 +39,13 @@
 %%--------------------------------------------------------------------
 %% Public API
 %%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% @doc Creates a new estore, the efiles will be stored in the given
+%%   directory.
+%% @end
+%%--------------------------------------------------------------------
+
 -spec new(Dir :: string() | binary(),
           Opts :: [new_opt()]) ->
                  {ok, estore()} |
@@ -56,11 +64,23 @@ new(Dir, Opts) when is_list(Dir), is_list(Opts) ->
     EStore = apply_opts(#estore{dir = Dir}, Opts),
     open_estore(EStore).
 
+%%--------------------------------------------------------------------
+%% @doc Closes all the files in an event store.
+%% @end
+%%--------------------------------------------------------------------
 -spec close(estore()) -> ok.
 close(EStore) ->
     close_file(EStore),
     ok.
 
+%%--------------------------------------------------------------------
+%% @doc Inserts one or more events into a event store. The events
+%%   are expected to be ordered! Sharding will be done automatically
+%%   and does not need to be handled outside of the estore.
+%%
+%%   As in fold strict order is not guarantted.
+%% @end
+%%--------------------------------------------------------------------
 -spec append([efile:event()], estore()) ->
                     {ok, estore()}.
 append([], EStore) ->
@@ -69,6 +89,15 @@ append([{T, _, _} = E | Es], EStore) ->
     C = chunk(EStore, T),
     write_chunk(EStore, C, [E], Es).
 
+%%--------------------------------------------------------------------
+%% @doc Reads a time range from the estore, it will traverse multiple
+%%   efiles if required. Keep in mind that this will create one
+%%   big aggregator for all events using fold/5 might be a better
+%%   choice for larger datasets.
+%%
+%%   As in fold strict order is not guarantted.
+%% @end
+%%--------------------------------------------------------------------
 -spec read(Start  :: pos_integer(),
            End    :: pos_integer(),
            Estore :: estore()) ->
@@ -80,6 +109,12 @@ read(Start, End, EStore) when Start =< End->
           end,
     fold(Start, End, Fun, [] , EStore).
 
+%%--------------------------------------------------------------------
+%% @doc Folds over a time range, passing each event into the fold
+%%   function. Strict order is not guarantted. Events might come out
+%%   of order but will remain in the grace period.
+%% @end
+%%--------------------------------------------------------------------
 -spec fold(Start  :: pos_integer(),
            End    :: pos_integer(),
            Fun    :: efile:fold_fun(),
@@ -92,14 +127,44 @@ fold(Start, End, Fun, Acc, EStore = #estore{size = S}) ->
     {_, Acc1, EStore1} = lists:foldl(fun fold_fun/2, {Fun, Acc, EStore}, Splits),
     {ok, Acc1, EStore1}.
 
+%%--------------------------------------------------------------------
+%% @doc Utility function that generates a event id. This is the same
+%%   as eid(estore).
+%% @end
+%%--------------------------------------------------------------------
+eid() ->
+    eid(estore).
+
+%%--------------------------------------------------------------------
+%% @doc Creates a event id, using a sha1 hash on the node, the pid,
+%%    erlang:unique_integer and a passed term.
+%% @end
+%%--------------------------------------------------------------------
+eid(E) ->
+    crypto:hash(sha,
+                term_to_binary(
+                  {node(),
+                   erlang:unique_integer(),
+                   self(),
+                   E})).
+
+%%--------------------------------------------------------------------
+%% @doc Creates a event tuple with timestamp, an eid and the evnt
+%%    passed. The timestamp does NOT have to be provided this function
+%%    calls erlang:system_time to get it.
+%% @end
+%%--------------------------------------------------------------------
+event(E) ->
+    {erlang:system_time(nano_seconds), eid(), E}.
+%%====================================================================
+%% Private functions.
+%%====================================================================    .
+
+
 fold_fun({Start, End}, {Fun, Acc, EStore}) ->
     {ok, EStore1}  = open_chunk(EStore, Start),
     {ok, Acc1, File1} = efile:fold(Start, End, Fun, Acc, EStore1#estore.file),
     {Fun, Acc1, EStore1#estore{file = File1}}.
-
-%%====================================================================
-%% Private functions.
-%%====================================================================    .
 
 write_chunk(EStore, _C, Res, []) ->
     append_sorted(EStore, lists:sort(Res));
