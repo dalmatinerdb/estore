@@ -2,7 +2,7 @@
 %%% @author Heinz Nikolaus Gies <heinz@project-fifo.net>
 %%% @copyright (C) 2016, Project-FiFo UG
 %%% @doc
-%%%
+%%%  Event store time sharded over mitleople efiles.
 %%% @end
 %%% Created : 10 Sep 2016 by Heinz Nikolaus Gies <heinz@licenser.net>
 %%%-------------------------------------------------------------------
