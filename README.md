@@ -1,7 +1,7 @@
 estore
 =====
 
-An OTP library
+A badly documented OTP library that stores time indexed events.
 
 Build
 -----
