@@ -1,15 +1,10 @@
-{application, estore,
- [{description, "Simple event store"},
-  {vsn, "0.1.0"},
-  {registered, []},
-  {applications,
-   [kernel,
-    stdlib
-   ]},
-  {env,[]},
-  {modules, []},
-
-  {maintainers, ["Heinz N. Gies"]},
-  {licenses, ["MIT"]},
-  {links, [{"Github", "https://github.com/dalmatinerdb/estore"}]}
- ]}.
+{application,estore,
+             [{description,"Simple event store"},
+              {vsn,"0.1.1"},
+              {registered,[]},
+              {applications,[kernel,stdlib]},
+              {env,[]},
+              {modules,[]},
+              {maintainers,["Heinz N. Gies"]},
+              {licenses,["MIT"]},
+              {links,[{"Github","https://github.com/dalmatinerdb/estore"}]}]}.
