@@ -21,17 +21,17 @@
 %%% The file structure is suposed to be simle. Both the recon and the
 %%% man event store file follow this guids:
 %%% <pre>
-%%% |  8   |  16  | 20 | Size |
+%%% |  4   |  8   |  4 | Size |
 %%% | Size | Time | ID | Data |
 %%% </pre>
 %%% The index file is prefixed with:
 %%% <pre>
-%%% |    2    |      16      |
+%%% |    2    |      8       |
 %%% | Version | Grace Period |
 %%% </pre>
 %%% Index data is then encoded as following:
 %%% <pre>
-%%% |  16  |     8    | 20 |
+%%% |  8   |     8    | 4  |
 %%% | Time | Position | ID |
 %%% </pre>
 %%% @end
@@ -57,12 +57,12 @@
 -opaque efile() :: #efile{}.
 
 -type event() ::
-        {pos_integer(), <<_:160>>, term()}.
+        {pos_integer(), <<_:32>>, term()}.
 
 -type opt() :: {grace, pos_integer()}.
 
 -type fold_fun() :: fun((Time  :: pos_integer(),
-                         ID    :: <<_:160>>,
+                         ID    :: <<_:32>>,
                          Event :: term(),
                          AccIn :: any()) -> AccOut :: any()).
 
@@ -161,7 +161,7 @@ fold(Start, End, Fun, Acc, EFile)
 
 read_index(Idx,
            EFile = #efile{grace = Grace},
-           <<?VSN:16, Grace:128/integer, Data/binary>>) ->
+           <<?VSN:16, Grace:64/unsigned-integer, Data/binary>>) ->
     read_index_(Idx, EFile, Data);
 read_index(_, _, _) ->
     {error, invalid_index}.
@@ -174,20 +174,20 @@ read_index_(Idx, EFile = #efile{read_size = RS}, <<>>) ->
             {ok, EFile#efile{idx = Idx}}
     end;
 read_index_(Idx, EFile = #efile{idx_t = Tree},
-            <<Time:128/integer, Pos:64/integer, _ID:20/binary, Data/binary>>) ->
+            <<Time:64/unsigned-integer, Pos:64/integer, _ID:4/binary, Data/binary>>) ->
     Tree1 = gb_trees:insert(Time, Pos, Tree),
     read_index_(Idx, EFile#efile{idx_t = Tree1, last = Time}, Data).
 
 update_idx(EFile = #efile{idx = undefined}, Pos, ID, Old, New) ->
     {ok, Idx} = file:open(idx(EFile), [read, write | ?OPTS]),
-    file:write(Idx, <<?VSN:16, (EFile#efile.grace):128/integer>>),
+    file:write(Idx, <<?VSN:16, (EFile#efile.grace):64/unsigned-integer>>),
     update_idx(EFile#efile{idx = Idx}, Pos, ID, Old, New);
 
 update_idx(EFile = #efile{idx = Idx, idx_t = Tree}, Pos, ID, Old, New)
   when New > Old; Old =:= undefined ->
     Tree1 = gb_trees:insert(New, Pos, Tree),
     EFile1 = EFile#efile{last = New, idx_t = Tree1},
-    file:write(Idx, <<New:128/integer, Pos:64/integer, ID:20/binary>>),
+    file:write(Idx, <<New:64/unsigned-integer, Pos:64/integer, ID:4/binary>>),
     EFile1;
 update_idx(EFile, _Pos, _Old, _ID, _New) ->
     EFile.
@@ -226,14 +226,14 @@ read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon) ->
 
 
 read_recon(Start, End, EFile, Fun, Acc,
-           <<Size:64/integer, Time:128/integer, _ID:20/binary, _:Size/binary, R/binary>>,
+           <<Size:32/integer, Time:64/unsigned-integer, _ID:4/binary, _:Size/binary, R/binary>>,
            RAcc, Recon)
   when Time < Start;
        Time > End ->
     read_recon(Start, End, EFile, Fun, Acc, R, RAcc, Recon);
 
 read_recon(Start, End, EFile, Fun, Acc,
-           <<Size:64/integer, Time:128/integer, ID:20/binary, Event:Size/binary, R/binary>>,
+           <<Size:32/integer, Time:64/unsigned-integer, ID:4/binary, Event:Size/binary, R/binary>>,
            RAcc, Recon) ->
     read_recon(Start, End, EFile, Fun, Acc, R, [{Time, ID, Event} | RAcc], Recon);
 
@@ -269,7 +269,7 @@ read(Start, End, EFile = #efile{read_size = ReadSize, idx_t = Tree},
     end;
 
 read(_Start, End, #efile{grace  = Grace}, Fun, Acc,
-     <<_Size:64/integer, Time:128/integer, _/binary>>,
+     <<_Size:32/integer, Time:64/unsigned-integer, _/binary>>,
      RAcc, EStore)
   when Time > End + Grace ->
     file:close(EStore),
@@ -279,19 +279,19 @@ read(_Start, End, #efile{grace  = Grace}, Fun, Acc,
                 end, Acc, RAcc);
 
 read(Start, End, EFile, Fun, Acc,
-     <<Size:64/integer, Time:128/integer, _:20/binary, _:Size/binary, R/binary>>,
+     <<Size:32/integer, Time:64/unsigned-integer, _:4/binary, _:Size/binary, R/binary>>,
      RAcc, EStore) when Time < Start ->
     read(Start, End, EFile, Fun, Acc, R, RAcc, EStore);
 
 read(Start, End, EFile, Fun, Acc,
-     <<_Size:64/integer, Time:128/integer, _:20/binary, _/binary>> = Data,
+     <<_Size:32/integer, Time:64/unsigned-integer, _:4/binary, _/binary>> = Data,
      [{RTime, RID, REvent} | RAcc], EStore) when
       Time >= RTime ->
     Acc1 = Fun(RTime, RID, binary_to_term(REvent), Acc),
     read(Start, End, EFile, Fun, Acc1, Data, RAcc, EStore);
 
 read(Start, End, EFile, Fun, Acc,
-     <<Size:64/integer, Time:128/integer, ID:20/binary, Event:Size/binary, R/binary>>,
+     <<Size:32/integer, Time:64/unsigned-integer, ID:4/binary, Event:Size/binary, R/binary>>,
      RAcc, EStore) ->
     Acc1 = Fun(Time, ID, binary_to_term(Event), Acc),
     read(Start, End, EFile, Fun, Acc1, R, RAcc, EStore);
@@ -312,7 +312,7 @@ serialize(Es) ->
 serialize(Time, ID, Event) ->
     B = term_to_binary(Event),
     S = byte_size(B),
-    <<S:64/integer, Time:128/integer, ID:20/binary, B/binary>>.
+    <<S:32/integer, Time:64/unsigned-integer, ID:4/binary, B/binary>>.
 
 apply_opts(EFile, []) ->
     EFile;

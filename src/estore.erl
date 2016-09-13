@@ -141,12 +141,11 @@ eid() ->
 %% @end
 %%--------------------------------------------------------------------
 eid(E) ->
-    crypto:hash(sha,
-                term_to_binary(
-                  {node(),
-                   erlang:unique_integer(),
-                   self(),
-                   E})).
+    H = erlang:phash2({node(),
+                       erlang:unique_integer(),
+                       self(),
+                       E}),
+    <<H:32/unsigned-integer>>.
 
 %%--------------------------------------------------------------------
 %% @doc Creates a event tuple with timestamp, an eid and the evnt

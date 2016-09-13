@@ -29,9 +29,11 @@ The fact that indexing is not required to be 100% means that this can later be t
 
 ### Event IDs
 
-Each event is required to carry a 160 bit (size of a sha1 sum) ID. those ID's allow that in the case of a distributed use events can be repaired without accidentally duplicating or reduplicating events.
+Each event is required to carry a 32 bit ID. those ID's allow that in the case of a distributed use events can be repaired without accidentally duplicating or reduplicating events.
 
 It allows to have two equal events with the same timestamp and content and still repair them.
+
+The small size was chosen as the ID only needs to be unique between two events with the same timestamp and the same event!
 
 ### Store vs. File
 

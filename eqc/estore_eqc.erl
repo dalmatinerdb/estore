@@ -38,7 +38,7 @@ append(Size, FileSize) ->
              {call, dict, append, [Time, {Time, Event}, T]}})).
 
 append(Time, Event, Store) ->
-    {ok, Store1} = estore:append([{Time, <<Time:160>>, Event}], Store),
+    {ok, Store1} = estore:append([{Time, estore:eid(), Event}], Store),
     Store1.
 
 store(Size, FileSize) ->

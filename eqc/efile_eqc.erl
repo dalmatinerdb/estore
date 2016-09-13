@@ -34,7 +34,7 @@ append(Size) ->
              {call, dict, append, [Time, {Time, Event}, T]}})).
 
 append(Time, Event, Store) ->
-    {ok, Store1} = efile:append([{Time, <<(erlang:unique_integer()):160>>, Event}], Store),
+    {ok, Store1} = efile:append([{Time, estore:eid(), Event}], Store),
     Store1.
 
 store(Size) ->
