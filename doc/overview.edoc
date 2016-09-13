@@ -1,0 +1,7 @@
+** this is the overview.doc file for the application 'estore' **
+
+   @author Heinz N. Gies  <heinz@project-fifo.>
+   @copyright 2016 Project-FiFo UG
+   @version 0.1.0
+   @title Pure erlang event store.
+   @doc A efficient event store using append only logic and best effort orerding.
