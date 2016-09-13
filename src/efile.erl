@@ -20,19 +20,20 @@
 %%%
 %%% The file structure is suposed to be simle. Both the recon and the
 %%% man event store file follow this guids:
-%%%
+%%% <pre>
 %%% |  8   |  16  | 20 | Size |
 %%% | Size | Time | ID | Data |
-%%%
+%%% </pre>
 %%% The index file is prefixed with:
-%%%
+%%% <pre>
 %%% |    2    |      16      |
 %%% | Version | Grace Period |
-%%%
+%%% </pre>
 %%% Index data is then encoded as following:
-%%%
+%%% <pre>
 %%% |  16  |     8    | 20 |
 %%% | Time | Position | ID |
+%%% </pre>
 %%% @end
 %%% Created : 10 Sep 2016 by Heinz Nikolaus Gies <heinz@licenser.net>
 %%%-------------------------------------------------------------------

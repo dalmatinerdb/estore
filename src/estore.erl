@@ -129,7 +129,7 @@ fold(Start, End, Fun, Acc, EStore = #estore{size = S}) ->
 
 %%--------------------------------------------------------------------
 %% @doc Utility function that generates a event id. This is the same
-%%   as eid(estore).
+%%   as {@link eid/1} with the argument estore.
 %% @end
 %%--------------------------------------------------------------------
 eid() ->
@@ -151,11 +151,32 @@ eid(E) ->
 %%--------------------------------------------------------------------
 %% @doc Creates a event tuple with timestamp, an eid and the evnt
 %%    passed. The timestamp does NOT have to be provided this function
-%%    calls erlang:system_time to get it.
+%%    calls {@link erlang:system_time/1} to get it.
 %% @end
 %%--------------------------------------------------------------------
 event(E) ->
     {erlang:system_time(nano_seconds), eid(), E}.
+
+%%--------------------------------------------------------------------
+%% @doc Splits a start end end based into chunks based on the file
+%%    sized. This is a utility function that can be used for
+%%    distributing estore files.
+%% @end
+%%--------------------------------------------------------------------
+make_splits(Time, End, Size)
+  when Time div Size =:= End div Size ->
+    [{Time, End}];
+make_splits(Time, End, Size) ->
+    make_splits(Time, End, Size, []).
+
+make_splits(Time, End, Size, Acc)
+  when Time div Size =:= End div Size ->
+    lists:reverse([{Time, End} | Acc]);
+make_splits(Time, End, Size, Acc) ->
+    Next = ((Time + Size) div Size) * Size,
+    make_splits(Next, End, Size,
+                [{Time, Next - 1} | Acc]).
+
 %%====================================================================
 %% Private functions.
 %%====================================================================    .
@@ -254,17 +275,3 @@ to_ns({X, us}) when is_integer(X), X > 0 ->
     erlang:convert_time_unit(X, micro_seconds, nano_seconds);
 to_ns({X, ns}) when is_integer(X), X > 0 ->
     X.
-
-make_splits(Time, End, Size)
-  when Time div Size =:= End div Size ->
-    [{Time, End}];
-make_splits(Time, End, Size) ->
-    make_splits(Time, End, Size, []).
-
-make_splits(Time, End, Size, Acc)
-  when Time div Size =:= End div Size ->
-    lists:reverse([{Time, End} | Acc]);
-make_splits(Time, End, Size, Acc) ->
-    Next = ((Time + Size) div Size) * Size,
-    make_splits(Next, End, Size,
-                [{Time, Next - 1} | Acc]).
