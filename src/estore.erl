@@ -192,8 +192,8 @@ write_chunk(EStore, C, Acc, [{Tin, _, _} = E | Es])
   when Tin div EStore#estore.size =:= C ->
     write_chunk(EStore, C, [E | Acc], Es);
 write_chunk(EStore, _C, Res, Es) ->
-    append_sorted(EStore, lists:sort(Res)),
-    append(Es, EStore).
+    {ok, EStore1} = append_sorted(EStore, lists:sort(Res)),
+    append(Es, EStore1).
 
 
 append_sorted(EStore, [{T, _, _} | _] = Es) ->
