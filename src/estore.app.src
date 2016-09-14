@@ -1,6 +1,6 @@
 {application,estore,
              [{description,"Simple event store"},
-              {vsn,"0.1.1"},
+              {vsn,"0.1.2"},
               {registered,[]},
               {applications,[kernel,stdlib]},
               {env,[]},
