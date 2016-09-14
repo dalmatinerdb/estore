@@ -9,7 +9,7 @@
 -module(estore).
 
 -export([new/2, close/1, append/2, read/3, make_splits/3,
-         event/1, eid/1, eid/0, fold/3]).
+         event/1, eid/1, eid/0, fold/3, count/1]).
 -export_type([estore/0]).
 
 -define(VSN, 1).
@@ -145,6 +145,23 @@ fold(Fun, Acc, EStore) ->
                       end, Acc, Files),
     {ok, Res, EStore}.
 
+
+%%--------------------------------------------------------------------
+%% @doc Returns an APPROXIMATE count of elements in the estore.
+%%    This uses the index as an indicator and by that should return
+%%    a ballpark of how many entries exist.
+%% @end
+%%--------------------------------------------------------------------
+
+count(EStore) ->
+    Files = files(EStore),
+    Res = lists:foldl(fun (File, AccIn) ->
+                              F = efile(File, EStore),
+                              N = efile:count(F),
+                              efile:close(F),
+                              AccIn + N
+                      end, 0, Files),
+    {ok, Res, EStore}.
 
 %%--------------------------------------------------------------------
 %% @doc Utility function that generates a event id. This is the same

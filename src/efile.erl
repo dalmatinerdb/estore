@@ -40,7 +40,7 @@
 -module(efile).
 
 %% API exports
--export([new/1, new/2, close/1, append/2, fold/5, fold/3, read/3]).
+-export([new/1, new/2, close/1, append/2, fold/5, fold/3, read/3, count/1]).
 -export_type([efile/0, event/0, fold_fun/0]).
 -define(OPTS, [raw, binary]).
 -define(VSN, 1).
@@ -164,6 +164,9 @@ fold(Start, End, Fun, Acc, EFile)
                   {ok, any(), efile()}.
 fold(Fun, Acc, EFile) ->
     fold(0, infinity, Fun, Acc, EFile).
+
+count(#efile{idx_t = T}) ->
+    gb_trees:size(T).
 
 
 %%====================================================================
