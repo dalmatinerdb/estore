@@ -56,6 +56,12 @@ fetch(Start, End, Dict) ->
               T >= Start,
               T =< End])).
 
+fetch(Dict) ->
+    L = dict:to_list(Dict),
+    lists:sort(
+      lists:flatten(
+        [E || {_T, E} <- L])).
+
 prop_comp_file() ->
     ?FORALL({ST, {Start, End}}, {store(), start_end()},
             begin
@@ -68,5 +74,23 @@ prop_comp_file() ->
                 TR = fetch(Start, End, Dict),
                 ?WHENFAIL(io:format("~p -> ~p~n~p /=~n~p~n",
                                     [Start, End, SR1, TR]),
+                          SR1 == TR)
+           end).
+
+prop_fold_file() ->
+    ?FORALL(ST, store(),
+            begin
+                os:cmd("rm -r " ++ ?DIR),
+                os:cmd("mkdir " ++ ?DIR),
+                {Store, Dict} = eval(ST),
+                   Fun = fun(Time, _ID, Event, Acc) ->
+                                 [{Time, Event} | Acc]
+                         end,
+                {ok, SR, _S1} = efile:fold(Fun, [], Store),
+                SR1 = lists:sort(SR),
+                efile:close(Store),
+                TR = fetch(Dict),
+                ?WHENFAIL(io:format("~p /=~n~p~n",
+                                    [SR1, TR]),
                           SR1 == TR)
            end).

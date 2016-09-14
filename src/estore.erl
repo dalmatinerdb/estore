@@ -9,7 +9,7 @@
 -module(estore).
 
 -export([new/2, close/1, append/2, read/3, make_splits/3,
-         event/1, eid/1, eid/0]).
+         event/1, eid/1, eid/0, fold/3]).
 -export_type([estore/0]).
 
 -define(VSN, 1).
@@ -63,6 +63,7 @@ new(Dir, Opts) when is_list(Dir), is_list(Opts) ->
     end,
     EStore = apply_opts(#estore{dir = Dir}, Opts),
     open_estore(EStore).
+
 
 %%--------------------------------------------------------------------
 %% @doc Closes all the files in an event store.
@@ -126,6 +127,24 @@ fold(Start, End, Fun, Acc, EStore = #estore{size = S}) ->
     Splits = make_splits(Start, End, S),
     {_, Acc1, EStore1} = lists:foldl(fun fold_fun/2, {Fun, Acc, EStore}, Splits),
     {ok, Acc1, EStore1}.
+
+%%--------------------------------------------------------------------
+%% @doc Folds the entire store, passing each event into the fold
+%%   function. Strict order is not guarantted. Events might come out
+%%   of order but will remain in the grace period.
+%% @end
+%%--------------------------------------------------------------------
+
+fold(Fun, Acc, EStore) ->
+    Files = files(EStore),
+    Res = lists:foldl(fun (File, AccIn) ->
+                              F = efile(File, EStore),
+                              {ok, AccOut, F1} = efile:fold(Fun, AccIn, F),
+                              efile:close(F1),
+                              AccOut
+                      end, Acc, Files),
+    {ok, Res, EStore}.
+
 
 %%--------------------------------------------------------------------
 %% @doc Utility function that generates a event id. This is the same
@@ -219,13 +238,18 @@ apply_opts(Estore, [_ | R]) ->
 open_chunk(EStore = #estore{size = S, chunk = C}, T)
   when T div S =:= C ->
     {ok, EStore};
-open_chunk(EStore = #estore{dir = D, file = undefined, grace = G}, T) ->
+open_chunk(EStore = #estore{dir = D, file = undefined}, T) ->
     C = chunk(EStore, T),
     File = [D, $/,  integer_to_list(C)],
-    {ok, F} = efile:new(File, [{grace, G}]),
+    F = efile(File, EStore),
     {ok, EStore#estore{chunk = C, file = F}};
+
 open_chunk(EStore, T) ->
     open_chunk(close_file(EStore), T).
+
+efile(File, #estore{grace = G}) ->
+    {ok, F} = efile:new(File, [{grace, G}]),
+    F.
 
 close_file(EStore = #estore{file = undefined}) ->
     EStore;
@@ -274,3 +298,12 @@ to_ns({X, us}) when is_integer(X), X > 0 ->
     erlang:convert_time_unit(X, micro_seconds, nano_seconds);
 to_ns({X, ns}) when is_integer(X), X > 0 ->
     X.
+
+files(#estore{dir = D}) ->
+    Fs = filelib:wildcard("*.idx", D),
+    Fs1 = lists:sort([file_base(F) || F <- Fs]),
+    Fs2 = [D ++ "/" ++ integer_to_list(F) || F <- Fs1],
+    Fs2.
+
+file_base(F) ->
+    list_to_integer(string:substr(F, 1, length(F) - 4)).

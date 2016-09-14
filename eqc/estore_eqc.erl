@@ -66,6 +66,27 @@ file_size() ->
 to_nano(X) ->
     erlang:convert_time_unit(X, seconds, nano_seconds).
 
+split_range() ->
+    ?LET({Start, Count, Size},
+         {pos_int(), pos_int(), pos_int()},
+         {Start, Count, Size + 1}).
+test_splits([], Sum, _) ->
+    Sum;
+test_splits([{S, E} | R], Sum, Size) ->
+    case (S div Size =:= E div Size) of
+        false ->
+            Sum;
+        true ->
+            test_splits(R, Sum + (E - S) + 1, Size)
+    end.
+
+fetch(Dict) ->
+    L = dict:to_list(Dict),
+    lists:sort(
+      lists:flatten(
+        [E || {_T, E} <- L])).
+
+
 prop_comp_store() ->
     ?FORALL(
        FileSize, file_size(),
@@ -82,11 +103,6 @@ prop_comp_store() ->
                              SR1 == TR)
                end)).
 
-split_range() ->
-    ?LET({Start, Count, Size},
-         {pos_int(), pos_int(), pos_int()},
-         {Start, Count, Size + 1}).
-
 prop_splits() ->
     ?FORALL({Start, Count, Size}, split_range(),
             begin
@@ -96,12 +112,22 @@ prop_splits() ->
                           Sum =:= Count)
             end).
 
-test_splits([], Sum, _) ->
-    Sum;
-test_splits([{S, E} | R], Sum, Size) ->
-    case (S div Size =:= E div Size) of
-        false ->
-            Sum;
-        true ->
-            test_splits(R, Sum + (E - S) + 1, Size)
-    end.
+prop_fold_store() ->
+    ?FORALL(
+       FileSize, file_size(),
+       ?FORALL(ST, store(FileSize),
+               begin
+                   os:cmd("rm -r " ++ ?DIR),
+                   os:cmd("mkdir " ++ ?DIR),
+                   {Store, Dict} = eval(ST),
+                   Fun = fun(Time, _ID, Event, Acc) ->
+                                 [{Time, Event} | Acc]
+                         end,
+                   {ok, SR, _S1} = estore:fold(Fun, [], Store),
+                   SR1 = lists:sort(SR),
+                   estore:close(Store),
+                   TR = fetch(Dict),
+                   ?WHENFAIL(io:format("~p /=~n~p~n",
+                                       [SR1, TR]),
+                             SR1 == TR)
+               end)).

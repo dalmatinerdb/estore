@@ -40,7 +40,7 @@
 -module(efile).
 
 %% API exports
--export([new/1, new/2, close/1, append/2, fold/5, read/3]).
+-export([new/1, new/2, close/1, append/2, fold/5, fold/3, read/3]).
 -export_type([efile/0, event/0, fold_fun/0]).
 -define(OPTS, [raw, binary]).
 -define(VSN, 1).
@@ -141,8 +141,8 @@ read(Start, End, EFile) when Start =< End ->
           end,
     fold(Start, End, Fun, [] , EFile).
 
--spec fold(Start :: pos_integer(),
-           End   :: pos_integer(),
+-spec fold(Start :: non_neg_integer(),
+           End   :: pos_integer() | infinity,
            Fun   :: fold_fun(),
            Acc   :: any(),
            EFile :: efile()) ->
@@ -157,6 +157,14 @@ fold(Start, End, Fun, Acc, EFile)
                 read_recon(Start, End, EFile, Fun, Acc, <<>>, [], undefined)
         end,
     {ok, Acc1, EFile}.
+
+-spec fold(Fun   :: fold_fun(),
+           Acc   :: any(),
+           EFile :: efile()) ->
+                  {ok, any(), efile()}.
+fold(Fun, Acc, EFile) ->
+    fold(0, infinity, Fun, Acc, EFile).
+
 
 %%====================================================================
 %% Internal functions
