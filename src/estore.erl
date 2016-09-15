@@ -9,7 +9,7 @@
 -module(estore).
 
 -export([new/2, close/1, append/2, read/3, make_splits/3,
-         event/1, eid/1, eid/0, fold/3, count/1]).
+         event/1, eid/1, eid/0, fold/3, count/1, delete/1, delete/2]).
 -export_type([estore/0]).
 
 -define(VSN, 1).
@@ -164,6 +164,37 @@ count(EStore) ->
     {ok, Res, EStore}.
 
 %%--------------------------------------------------------------------
+%% @doc Deletes the store and all files within it.
+%% @end
+%%--------------------------------------------------------------------
+
+delete(EStore = #estore{dir = Dir}) ->
+    close(EStore),
+    Files = files(EStore),
+    lists:foldl(fun (File, _) ->
+                        efile:delete(File)
+                end, ok, Files),
+    file:delete([Dir, $/, "estore"]),
+    file:del_dir(Dir),
+    ok.
+
+%%--------------------------------------------------------------------
+%% @doc Delete all efiles that start before a certain point in time.
+%% this means some events that existed before 'Before' can still be
+%% in there.
+%% @end
+%%--------------------------------------------------------------------
+delete(Before, EStore = #estore{size = Size}) ->
+    EStore1 = close_file(EStore),
+    %% We substract the Size from Before so we can make sure that we
+    %% can guarantee everything after Before is still there.
+    Files = files(Before - Size, EStore1),
+    lists:foldl(fun (File, _) ->
+                        efile:delete(File)
+                end, ok, Files),
+    {ok, EStore1}.
+
+%%--------------------------------------------------------------------
 %% @doc Utility function that generates a event id. This is the same
 %%   as {@link eid/1} with the argument estore.
 %% @end
@@ -315,12 +346,16 @@ to_ns({X, us}) when is_integer(X), X > 0 ->
     erlang:convert_time_unit(X, micro_seconds, nano_seconds);
 to_ns({X, ns}) when is_integer(X), X > 0 ->
     X.
+files(E) ->
+    files(infinity, E).
 
-files(#estore{dir = D}) ->
+files(Before, #estore{dir = D, size = Size}) ->
     Fs = filelib:wildcard("*.idx", D),
     Fs1 = lists:sort([file_base(F) || F <- Fs]),
-    Fs2 = [D ++ "/" ++ integer_to_list(F) || F <- Fs1],
-    Fs2.
+    Fs2 = [F || F <- Fs1, F * Size < Before],
+    Fs3 = [D ++ "/" ++ integer_to_list(F) ||
+              F <- Fs2],
+    Fs3.
 
 file_base(F) ->
     list_to_integer(string:substr(F, 1, length(F) - 4)).

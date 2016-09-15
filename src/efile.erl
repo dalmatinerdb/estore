@@ -40,7 +40,8 @@
 -module(efile).
 
 %% API exports
--export([new/1, new/2, close/1, append/2, fold/5, fold/3, read/3, count/1]).
+-export([new/1, new/2, close/1, append/2, fold/5, fold/3, read/3, count/1,
+         delete/1]).
 -export_type([efile/0, event/0, fold_fun/0]).
 -define(OPTS, [raw, binary]).
 -define(VSN, 1).
@@ -97,6 +98,15 @@ close(#efile{estore = undefined, idx = Idx}) ->
 close(#efile{estore = EStore, idx = Idx}) ->
     file:close(Idx),
     file:close(EStore).
+
+-spec delete(efile() | string()) -> ok.
+delete(Name) when is_list(Name); is_binary(Name) ->
+    delete(#efile{name = Name});
+delete(EFile = #efile{}) ->
+    close(EFile),
+    file:delete(recon(EFile)),
+    file:delete(estore(EFile)),
+    file:delete(idx(EFile)).
 
 -spec append(Events :: [event()],
              EFile  :: efile()) ->
