@@ -46,14 +46,13 @@
 -define(OPTS, [raw, binary]).
 -define(VSN, 1).
 -record(efile, {
+          name,
+          grace = 0,
+          last = undefined,
           estore,
-          recon,
           idx,
           idx_t = undefined :: gb_trees:tree() | undefined,
-          last = undefined,
-          grace = 0,
           no_index = false :: boolean(),
-          name,
           read_size = 4 * 1024
          }).
 -opaque efile() :: #efile{}.
@@ -91,7 +90,7 @@ new(Name, Opts) ->
             Expected = <<?VSN:16, (EFile#efile.grace):64/?TIME_TYPE>>,
             case Data of
                 Expected ->
-                    EFile;
+                    {ok, EFile};
                 _ ->
                     {error, invalid_index}
             end;
@@ -206,9 +205,9 @@ read_index(EFile = #efile{read_size = RS}) ->
 
 read_index(Idx,
            EFile = #efile{grace = Grace, idx_t = _T},
-           <<?VSN:16, Grace:64/?TIME_TYPE, Data/binary>>)
-  when _T =/= undefined ->
+           <<?VSN:16, Grace:64/?TIME_TYPE, Data/binary>>) ->
     read_index_(Idx, EFile, Data);
+
 read_index(_, _, _) ->
     {error, invalid_index}.
 
@@ -222,11 +221,12 @@ read_index_(Idx, EFile = #efile{read_size = RS}, <<>>) ->
 read_index_(Idx, EFile = #efile{idx_t = Tree},
             <<Time:64/?TIME_TYPE, Pos:64/?POS_TYPE, _ID:4/binary, Data/binary>>) ->
     Tree1 = gb_trees:insert(Time, Pos, Tree),
-    read_index_(Idx, EFile#efile{idx_t = Tree1, last = Time}, Data).
+    EFile1 = EFile#efile{idx_t = Tree1, last = Time},
+    read_index_(Idx, EFile1, Data).
 
-update_idx(EFile = #efile{idx_t = undefined}, Pos, ID, Old, New) ->
-    {ok, EFile1} = read_index(EFile),
-    update_idx(EFile1, Pos, ID, Old, New);
+update_idx(EFile = #efile{idx_t = undefined}, Pos, ID, _Old, New) ->
+    {ok, EFile1 = #efile{last = Last}} = read_index(EFile),
+    update_idx(EFile1, Pos, ID, Last, New);
 
 update_idx(EFile = #efile{idx = undefined}, Pos, ID, Old, New) ->
     {ok, Idx} = file:open(idx(EFile), [read, write | ?OPTS]),

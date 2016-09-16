@@ -17,18 +17,24 @@ pos_int() ->
 store(FileSize) ->
     ?SIZED(Size, store(Size, FileSize)).
 
-new(Dir, FileSize) ->
-    {ok, R} = estore:new(Dir ++ "/eqc", [{file_size, FileSize}]),
+opts() ->
+    oneof(
+      [[no_index],
+       []]).
+
+new(Dir, FileSize, Opts) ->
+    {ok, R} = estore:new(Dir ++ "/eqc", [{file_size, FileSize} | Opts]),
     R.
+
 
 reopen(Size, FileSize) ->
     ?LAZY(
        ?LET({S, T}, store(Size - 1, FileSize),
-            {{call, ?MODULE, renew, [?DIR, S, FileSize]}, T})).
+            {{call, ?MODULE, renew, [?DIR, S, FileSize, opts()]}, T})).
 
-renew(Dir, Store, FileSize) ->
+renew(Dir, Store, FileSize, Opts) ->
     ok = estore:close(Store),
-    new(Dir, FileSize).
+    new(Dir, FileSize, Opts).
 
 append(Size, FileSize) ->
     ?LAZY(
@@ -43,7 +49,7 @@ append(Time, Event, Store) ->
 
 store(Size, FileSize) ->
     ?LAZY(oneof(
-            [{{call, ?MODULE, new,  [?DIR, FileSize]},
+            [{{call, ?MODULE, new,  [?DIR, FileSize, []]},
               {call, dict, new, []}} || Size == 0]
             ++ [frequency(
                   [{9, append(Size, FileSize)},
