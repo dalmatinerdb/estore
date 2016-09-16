@@ -178,7 +178,8 @@ fold(Fun, Acc, EStore) ->
 %%    a ballpark of how many entries exist.
 %% @end
 %%--------------------------------------------------------------------
-
+-spec count(estore()) ->
+                   {ok, non_neg_integer(), estore()}.
 count(EStore) ->
     Files = files(EStore),
     Res = lists:foldl(fun (File, AccIn) ->
@@ -193,7 +194,7 @@ count(EStore) ->
 %% @doc Deletes the store and all files within it.
 %% @end
 %%--------------------------------------------------------------------
-
+-spec delete(estore()) -> ok.
 delete(EStore = #estore{dir = Dir}) ->
     close(EStore),
     Files = files(EStore),
@@ -210,7 +211,11 @@ delete(EStore = #estore{dir = Dir}) ->
 %% in there.
 %% @end
 %%--------------------------------------------------------------------
-delete(Before, EStore = #estore{size = Size}) ->
+-spec delete(non_neg_integer(), estore()) ->
+                    {ok, estore()}.
+delete(Before, EStore = #estore{size = Size})
+  when is_integer(Before),
+       Before >= 0 ->
     EStore1 = close_file(EStore),
     %% We substract the Size from Before so we can make sure that we
     %% can guarantee everything after Before is still there.
@@ -225,6 +230,7 @@ delete(Before, EStore = #estore{size = Size}) ->
 %%   as {@link eid/1} with the argument estore.
 %% @end
 %%--------------------------------------------------------------------
+-spec eid() -> <<_:32>>.
 eid() ->
     eid(estore).
 
@@ -233,6 +239,7 @@ eid() ->
 %%    erlang:unique_integer and a passed term.
 %% @end
 %%--------------------------------------------------------------------
+-spec eid(term()) -> <<_:32>>.
 eid(E) ->
     H = erlang:phash2({node(),
                        erlang:unique_integer(),
