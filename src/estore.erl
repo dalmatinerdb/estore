@@ -160,7 +160,10 @@ fold(Start, End, Fun, Acc, EStore = #estore{size = S}) ->
 %%   of order but will remain in the grace period.
 %% @end
 %%--------------------------------------------------------------------
-
+-spec fold(Fun    :: efile:fold_fun(),
+           Acc    :: any(),
+           EStore :: estore()) ->
+                  {ok, any(), estore()}.
 fold(Fun, Acc, EStore) ->
     Files = files(EStore),
     Res = lists:foldl(fun (File, AccIn) ->
