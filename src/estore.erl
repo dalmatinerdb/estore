@@ -8,7 +8,7 @@
 %%%-------------------------------------------------------------------
 -module(estore).
 
--export([new/2, close/1, append/2, read/3, make_splits/3,
+-export([open/1, open/2, new/2, close/1, append/2, read/3, make_splits/3,
          event/1, eid/1, eid/0, fold/3, count/1, delete/1, delete/2]).
 -export_type([estore/0]).
 
@@ -20,7 +20,8 @@
           grace = 0 :: non_neg_integer(),
           file :: efile:efile(),
           chunk :: pos_integer(),
-          dir :: string()
+          dir :: string(),
+          no_index = false :: boolean()
          }).
 -opaque estore() :: #estore{}.
 
@@ -32,13 +33,38 @@
         {pos_integer(), time_unit()}.
 
 -type new_opt() ::
+        %% We don't read the index file ahead of time
+        no_index |
+        %% The time for each time
         {file_size, tagged_time()} |
+        %% The grace period.
         {grace, tagged_time()} .
 
 
 %%--------------------------------------------------------------------
 %% Public API
 %%--------------------------------------------------------------------
+
+-spec open(Dir :: string() | binary()) ->
+                  {ok, estore()} |
+                  {error, file_size | bad_index}.
+open(Dir) ->
+    open(Dir, []).
+
+-spec open(Dir :: string() | binary(),
+           Opts :: [new_opt()]) ->
+                  {ok, estore()} |
+                  {error, file_size | bad_index | noent}.
+open(Dir, Opts) when is_binary(Dir) ->
+    open(binary_to_list(Dir), Opts);
+open(Dir, Opts) ->
+    case filelib:is_file(Dir ++ "/estore") of
+        false ->
+            noent;
+        true ->
+            EStore = apply_opts(#estore{dir = Dir}, Opts),
+            open_estore(EStore, open)
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Creates a new estore, the efiles will be stored in the given
@@ -62,7 +88,7 @@ new(Dir, Opts) when is_list(Dir), is_list(Opts) ->
             ok = file:make_dir(Dir)
     end,
     EStore = apply_opts(#estore{dir = Dir}, Opts),
-    open_estore(EStore).
+    open_estore(EStore, create).
 
 
 %%--------------------------------------------------------------------
@@ -157,8 +183,8 @@ count(EStore) ->
     Files = files(EStore),
     Res = lists:foldl(fun (File, AccIn) ->
                               F = efile(File, EStore),
-                              N = efile:count(F),
-                              efile:close(F),
+                              {ok, N, F1} = efile:count(F),
+                              efile:close(F1),
                               AccIn + N
                       end, 0, Files),
     {ok, Res, EStore}.
@@ -270,6 +296,8 @@ append_sorted(EStore, [{T, _, _} | _] = Es) ->
 
 apply_opts(Estore, []) ->
     Estore;
+apply_opts(Estore, [no_index | R]) ->
+    apply_opts(Estore#estore{no_index = true}, R);
 apply_opts(Estore, [{file_size, N} | R])
   when is_integer(N), N > 0 ->
     apply_opts(Estore#estore{size = N}, R);
@@ -295,6 +323,9 @@ open_chunk(EStore = #estore{dir = D, file = undefined}, T) ->
 open_chunk(EStore, T) ->
     open_chunk(close_file(EStore), T).
 
+efile(File, #estore{grace = G, no_index = true}) ->
+    {ok, F} = efile:new(File, [{grace, G}, no_index]),
+    F;
 efile(File, #estore{grace = G}) ->
     {ok, F} = efile:new(File, [{grace, G}]),
     F.
@@ -309,7 +340,7 @@ close_file(EStore = #estore{file = F}) when F /= undefined ->
 chunk(#estore{size = S}, T) ->
     T div S.
 
-open_estore(EStore = #estore{dir = Dir}) ->
+open_estore(EStore = #estore{dir = Dir}, create) ->
     IdxFile = [Dir | "/estore"],
     ExpectedIdx = <<?VSN:16/integer,
                     (EStore#estore.size):64/integer,
@@ -317,13 +348,31 @@ open_estore(EStore = #estore{dir = Dir}) ->
     case file:read_file(IdxFile) of
         {ok, ExpectedIdx} ->
             {ok, EStore};
+        %% If we create and a file exists with different settings we fail
         {ok, <<?VSN:16/integer, _/binary>>} ->
             {error, file_size};
+        %% If the index file could not be read we fail
         {ok, _} ->
             {error, bad_index};
+        %% If the file doens't exist we careate it
         {error,enoent} ->
             file:write_file(IdxFile, ExpectedIdx),
             {ok, EStore}
+    end;
+
+open_estore(EStore = #estore{dir = Dir}, open) ->
+    IdxFile = [Dir | "/estore"],
+    case file:read_file(IdxFile) of
+        %% If we open we simply overwrite the index with the old value
+        {ok, <<?VSN:16/integer, Size:64/integer, Grace:64/integer>>} ->
+            EStore1 = apply_opts(EStore, [{file_size, Size}, {grace, Grace}]),
+            {ok, EStore1};
+        %% If the index file could not be read we fail
+        {ok, _} ->
+            {error, bad_index};
+        %% If the file is not found we can't open.
+        {error,enoent} ->
+            {error,enoent}
     end.
 
 -spec to_ns(tagged_time()) ->

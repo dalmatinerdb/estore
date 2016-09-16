@@ -49,9 +49,10 @@
           estore,
           recon,
           idx,
-          idx_t = gb_trees:empty(),
+          idx_t = undefined :: gb_trees:tree() | undefined,
           last = undefined,
           grace = 0,
+          no_index = false :: boolean(),
           name,
           read_size = 4 * 1024
          }).
@@ -60,7 +61,7 @@
 -type event() ::
         {pos_integer(), <<_:32>>, term()}.
 
--type opt() :: {grace, pos_integer()}.
+-type opt() :: {grace, pos_integer()} | no_index.
 
 -type fold_fun() :: fun((Time  :: pos_integer(),
                          ID    :: <<_:32>>,
@@ -80,15 +81,24 @@ new(Name) ->
     new(Name, []).
 -spec new(string(), [opt()]) -> {ok, efile()}.
 new(Name, Opts) ->
-    EFile = #efile{read_size = RS} = apply_opts(#efile{name = Name}, Opts),
+    EFile = apply_opts(#efile{name = Name}, Opts),
     IdxFile = idx(EFile),
-    case filelib:is_file(IdxFile) of
-        true ->
+    case {filelib:is_file(IdxFile), EFile#efile.no_index} of
+        {true, true} ->
             {ok, Idx} = file:open(IdxFile, [read, write | ?OPTS]),
-            {ok, Data} = file:read(Idx, RS),
-            read_index(Idx, EFile, Data);
+            {ok, Data} = file:read(Idx, 10),
+            file:close(Idx),
+            Expected = <<?VSN:16, (EFile#efile.grace):64/?TIME_TYPE>>,
+            case Data of
+                Expected ->
+                    EFile;
+                _ ->
+                    {error, invalid_index}
+            end;
+        {true, false} ->
+            read_index(EFile);
         _ ->
-            {ok, EFile}
+            {ok, EFile#efile{idx_t = gb_trees:empty()}}
     end.
 -spec close(efile()) -> ok.
 close(#efile{estore = undefined, idx = undefined}) ->
@@ -151,6 +161,13 @@ read(Start, End, EFile) when Start =< End ->
           end,
     fold(Start, End, Fun, [] , EFile).
 
+-spec fold(Fun   :: fold_fun(),
+           Acc   :: any(),
+           EFile :: efile()) ->
+                  {ok, any(), efile()}.
+fold(Fun, Acc, EFile) ->
+    fold(0, infinity, Fun, Acc, EFile).
+
 -spec fold(Start :: non_neg_integer(),
            End   :: pos_integer() | infinity,
            Fun   :: fold_fun(),
@@ -159,33 +176,38 @@ read(Start, End, EFile) when Start =< End ->
                   {ok, any(), efile()}.
 fold(Start, End, Fun, Acc, EFile)
   when Start =< End->
-    Acc1 =
+    {ok, Acc1, EFile1} =
         case file:open(recon(EFile), [read | ?OPTS]) of
             {ok, Recon} ->
                 read_recon(Start, End, EFile, Fun, Acc, undefined, [], Recon);
             _ ->
                 read_recon(Start, End, EFile, Fun, Acc, <<>>, [], undefined)
         end,
-    {ok, Acc1, EFile}.
+    {ok, Acc1, EFile1}.
 
--spec fold(Fun   :: fold_fun(),
-           Acc   :: any(),
-           EFile :: efile()) ->
-                  {ok, any(), efile()}.
-fold(Fun, Acc, EFile) ->
-    fold(0, infinity, Fun, Acc, EFile).
-
-count(#efile{idx_t = T}) ->
-    gb_trees:size(T).
+-spec count(EFile :: efile()) ->
+                   {ok, non_neg_integer(), efile()}.
+count(EFile = #efile{idx_t = undefined}) ->
+    {ok, EFile1} = read_index(EFile),
+    count(EFile1);
+count(EFile = #efile{idx_t = T}) ->
+    {ok, gb_trees:size(T), EFile}.
 
 
 %%====================================================================
 %% Internal functions
 %%====================================================================
 
+read_index(EFile = #efile{read_size = RS}) ->
+    IdxFile = idx(EFile),
+    {ok, Idx} = file:open(IdxFile, [read, write | ?OPTS]),
+    {ok, Data} = file:read(Idx, RS),
+    read_index(Idx, EFile#efile{idx_t = gb_trees:empty()}, Data).
+
 read_index(Idx,
-           EFile = #efile{grace = Grace},
-           <<?VSN:16, Grace:64/?TIME_TYPE, Data/binary>>) ->
+           EFile = #efile{grace = Grace, idx_t = _T},
+           <<?VSN:16, Grace:64/?TIME_TYPE, Data/binary>>)
+  when _T =/= undefined ->
     read_index_(Idx, EFile, Data);
 read_index(_, _, _) ->
     {error, invalid_index}.
@@ -202,6 +224,10 @@ read_index_(Idx, EFile = #efile{idx_t = Tree},
     Tree1 = gb_trees:insert(Time, Pos, Tree),
     read_index_(Idx, EFile#efile{idx_t = Tree1, last = Time}, Data).
 
+update_idx(EFile = #efile{idx_t = undefined}, Pos, ID, Old, New) ->
+    {ok, EFile1} = read_index(EFile),
+    update_idx(EFile1, Pos, ID, Old, New);
+
 update_idx(EFile = #efile{idx = undefined}, Pos, ID, Old, New) ->
     {ok, Idx} = file:open(idx(EFile), [read, write | ?OPTS]),
     file:write(Idx, <<?VSN:16, (EFile#efile.grace):64/?TIME_TYPE>>),
@@ -216,15 +242,15 @@ update_idx(EFile = #efile{idx = Idx, idx_t = Tree}, Pos, ID, Old, New)
 update_idx(EFile, _Pos, _Old, _ID, _New) ->
     EFile.
 -spec read_recon(
-        Start :: pos_integer(),
-        End :: pos_integer(),
+        Start :: non_neg_integer(),
+        End :: pos_integer() | infinity,
         EFile  :: efile(),
         Fun :: fold_fun(),
         Acc :: term(),
         Data :: undefined | binary(),
         RAcc :: [event()],
         File :: file:fd() | undefined) ->
-                        term().
+                        {ok, term(), efile()}.
 read_recon(Start, End, EFile = #efile{read_size = ReadSize},
            Fun, Acc, undefined, RAcc, Recon) ->
     case file:read(Recon, ReadSize) of
@@ -239,9 +265,10 @@ read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, undefined) ->
         {ok, EStore} ->
             read(Start, End, EFile, Fun, Acc, undefined, RAcc, EStore);
         _ ->
-            lists:foldl(fun({RTime, REvent}, AccIn) ->
-                                Fun(RTime, binary_to_term(REvent), AccIn)
-                        end, Acc, RAcc)
+            Res = lists:foldl(fun({RTime, REvent}, AccIn) ->
+                                      Fun(RTime, binary_to_term(REvent), AccIn)
+                              end, Acc, RAcc),
+            {ok, Res, EFile}
     end;
 
 read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon) ->
@@ -259,25 +286,45 @@ read_recon(Start, End, EFile, Fun, Acc,
 read_recon(Start, End, EFile, Fun, Acc,
            <<Size:32/?SIZE_TYPE, Time:64/?TIME_TYPE, ID:4/binary, Event:Size/binary, R/binary>>,
            RAcc, Recon) ->
-    read_recon(Start, End, EFile, Fun, Acc, R, [{Time, ID, Event} | RAcc], Recon);
+    read_recon(Start, End, EFile, Fun, Acc, R, [{Time, ID, Event} | RAcc],
+               Recon);
 
 read_recon(Start, End, EFile, Fun, Acc, Data, RAcc, Recon) ->
     case  file:read(Recon, EFile#efile.read_size) of
         {ok, Data1} ->
-            read_recon(Start, End, EFile, Fun, Acc, <<Data/binary, Data1/binary>>,
+            read_recon(Start, End, EFile, Fun, Acc,
+                       <<Data/binary, Data1/binary>>,
                        RAcc, Recon);
         eof ->
             read_recon(Start, End, EFile, Fun, Acc, <<>>, RAcc, Recon)
     end.
 
-
-
-read(Start, End, EFile = #efile{read_size = ReadSize, idx_t = Tree},
+%% We first check the case where we start at 0, at that point we don't need
+%% to consult the index at all
+read(0, End, EFile = #efile{read_size = ReadSize},
      Fun, Acc, undefined, RAcc, EStore) ->
     %% We find the first element that is at least
     %% as large as the start time.
-    StartS = erlang:convert_time_unit(Start, nano_seconds, seconds),
-    Iter = gb_trees:iterator_from(StartS, Tree),
+    file:position(EStore, 0),
+    case file:read(EStore, ReadSize) of
+        {ok, Data} ->
+            read(0, End, EFile, Fun, Acc, Data, RAcc, EStore);
+        _ ->
+            Res = lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
+                                      Fun(RTime, RID, binary_to_term(REvent),
+                                          AccIn)
+                              end, Acc, RAcc),
+            {ok, Res, EFile}
+    end;
+
+read(Start, End, EFile = #efile{idx_t = undefined},
+     Fun, Acc, Data, RAcc, EStore) ->
+    {ok, EFile1} = read_index(EFile),
+    read(Start, End, EFile1, Fun, Acc, Data, RAcc, EStore);
+
+read(Start, End, EFile = #efile{read_size = ReadSize, idx_t = Tree},
+     Fun, Acc, undefined, RAcc, EStore) ->
+    Iter = gb_trees:iterator_from(Start, Tree),
     case gb_trees:next(Iter) of
         {_, Pos, _} ->
             file:position(EStore, Pos);
@@ -288,20 +335,23 @@ read(Start, End, EFile = #efile{read_size = ReadSize, idx_t = Tree},
         {ok, Data} ->
             read(Start, End, EFile, Fun, Acc, Data, RAcc, EStore);
         _ ->
-            lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
-                                Fun(RTime, RID, binary_to_term(REvent), AccIn)
-                        end, Acc, RAcc)
+            Res = lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
+                                      Fun(RTime, RID, binary_to_term(REvent),
+                                          AccIn)
+                              end, Acc, RAcc),
+            {ok, Res, EFile}
     end;
 
-read(_Start, End, #efile{grace  = Grace}, Fun, Acc,
+read(_Start, End, EFile = #efile{grace  = Grace}, Fun, Acc,
      <<_Size:32/?SIZE_TYPE, Time:64/?TIME_TYPE, _/binary>>,
      RAcc, EStore)
   when Time > End + Grace ->
     file:close(EStore),
     %% TODO: read recon file
-    lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
-                        Fun(RTime, RID, binary_to_term(REvent), AccIn)
-                end, Acc, RAcc);
+    Res = lists:foldl(fun({RTime, RID, REvent}, AccIn) ->
+                              Fun(RTime, RID, binary_to_term(REvent), AccIn)
+                      end, Acc, RAcc),
+    {ok, Res, EFile};
 
 read(Start, End, EFile, Fun, Acc,
      <<Size:32/?SIZE_TYPE, Time:64/?TIME_TYPE, _:4/binary, _:Size/binary, R/binary>>,
@@ -328,7 +378,7 @@ read(Start, End, EFile, Fun, Acc, Data, RAcc, EStore) ->
                  RAcc, EStore);
         eof ->
             file:close(EStore),
-            Acc
+            {ok, Acc, EFile}
     end.
 
 serialize(Es) ->
@@ -343,6 +393,8 @@ apply_opts(EFile, []) ->
     EFile;
 apply_opts(EFile, [{grace, Grace} | R]) ->
     apply_opts(EFile#efile{grace = Grace}, R);
+apply_opts(EFile, [no_index | R]) ->
+    apply_opts(EFile#efile{no_index = true}, R);
 apply_opts(EFile, [open | R]) ->
     {ok, EStore} = file:open(estore(EFile),
                              [write, append | ?OPTS]),
