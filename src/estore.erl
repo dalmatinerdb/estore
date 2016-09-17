@@ -54,13 +54,13 @@ open(Dir) ->
 -spec open(Dir :: string() | binary(),
            Opts :: [new_opt()]) ->
                   {ok, estore()} |
-                  {error, file_size | bad_index | noent}.
+                  {error, file_size | bad_index | enoent}.
 open(Dir, Opts) when is_binary(Dir) ->
     open(binary_to_list(Dir), Opts);
 open(Dir, Opts) ->
     case filelib:is_file(Dir ++ "/estore") of
         false ->
-            noent;
+            {error, enoent};
         true ->
             EStore = apply_opts(#estore{dir = Dir}, Opts),
             open_estore(EStore, open)
