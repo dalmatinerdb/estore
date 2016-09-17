@@ -47,7 +47,7 @@
 
 -spec open(Dir :: string() | binary()) ->
                   {ok, estore()} |
-                  {error, file_size | bad_index}.
+                  {error, file_size | bad_index | enoent}.
 open(Dir) ->
     open(Dir, []).
 
