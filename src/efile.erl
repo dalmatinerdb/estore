@@ -124,6 +124,10 @@ delete(EFile = #efile{}) ->
 append([], EFile) ->
     {ok, EFile};
 
+append(Es, EFile = #efile{idx_t = undefined}) ->
+    {ok, EFile1} = read_index(EFile),
+    append(Es, EFile1);
+
 append(Es, EFile = #efile{estore = undefined}) ->
     {ok, EStore} = file:open(estore(EFile), [write, append | ?OPTS]),
     append(Es, EFile#efile{estore = EStore});
@@ -211,18 +215,20 @@ read_index(Idx,
 read_index(_, _, _) ->
     {error, invalid_index}.
 
-read_index_(Idx, EFile = #efile{read_size = RS}, <<>>) ->
-    case file:read(Idx, RS) of
-        {ok, Data} ->
-            read_index_(Idx, EFile, Data);
-        eof ->
-            {ok, EFile#efile{idx = Idx}}
-    end;
 read_index_(Idx, EFile = #efile{idx_t = Tree},
-            <<Time:64/?TIME_TYPE, Pos:64/?POS_TYPE, _ID:4/binary, Data/binary>>) ->
+            <<Time:64/?TIME_TYPE, Pos:64/?POS_TYPE, _ID:4/binary,
+              Data/binary>>) ->
     Tree1 = gb_trees:insert(Time, Pos, Tree),
     EFile1 = EFile#efile{idx_t = Tree1, last = Time},
-    read_index_(Idx, EFile1, Data).
+    read_index_(Idx, EFile1, Data);
+
+read_index_(Idx, EFile = #efile{read_size = RS}, Acc) ->
+    case file:read(Idx, RS) of
+        {ok, Data} ->
+            read_index_(Idx, EFile, <<Acc/binary, Data/binary>>);
+        eof ->
+            {ok, EFile#efile{idx = Idx}}
+    end.
 
 update_idx(EFile = #efile{idx_t = undefined}, Pos, ID, _Old, New) ->
     {ok, EFile1 = #efile{last = Last}} = read_index(EFile),
@@ -324,9 +330,9 @@ read(Start, End, EFile = #efile{idx_t = undefined},
 
 read(Start, End, EFile = #efile{read_size = ReadSize, idx_t = Tree},
      Fun, Acc, undefined, RAcc, EStore) ->
-    Iter = gb_trees:iterator_from(Start, Tree),
+    Iter = gb_trees:iterator_from(Start - 1, Tree),
     case gb_trees:next(Iter) of
-        {_, Pos, _} ->
+        {T1, Pos, _} when T1 =< Start ->
             file:position(EStore, Pos);
         _ ->
             ok
