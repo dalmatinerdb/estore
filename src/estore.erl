@@ -9,7 +9,7 @@
 -module(estore).
 
 -export([open/1, open/2, new/2, close/1, append/2, read/3, make_splits/3,
-         event/1, eid/1, eid/0, fold/3, count/1, delete/1, delete/2]).
+         event/1, eid/1, eid/0, fold/5, fold/3, count/1, delete/1, delete/2]).
 -export_type([estore/0]).
 
 -define(VSN, 1).
