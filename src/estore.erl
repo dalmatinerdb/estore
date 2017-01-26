@@ -16,11 +16,11 @@
 -define(GRACE, ).
 
 -record(estore, {
-          size = 1 :: pos_integer(),
-          grace = 0 :: non_neg_integer(),
-          file :: efile:efile(),
-          chunk :: pos_integer(),
-          dir :: string(),
+          size     = 1     :: pos_integer(),
+          grace    = 0     :: non_neg_integer(),
+          file             :: efile:efile() | undefined,
+          chunk            :: pos_integer() | undefined,
+          dir              :: string(),
           no_index = false :: boolean()
          }).
 -opaque estore() :: #estore{}.
