@@ -1,4 +1,4 @@
-# estore
+# estore [![Build Status](https://travis-ci.org/dalmatinerdb/estore.svg?branch=master)](https://travis-ci.org/dalmatinerdb/estore)
 
 `estore` short for event-store. It is a pure Erlang store for mostly ordered time indexed events or logs.
 

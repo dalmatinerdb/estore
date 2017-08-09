@@ -1,8 +1,12 @@
+
 -module(estore_eqc).
 
 -include_lib("eqc/include/eqc.hrl").
--compile(export_all).
 
+-export([prop_comp_store/0,
+         prop_splits/0,
+         prop_fold_store/0]).
+-export([new/3, renew/4, append/3, to_nano/1]).
 -define(DIR, ".qcdata").
 -define(M, <<"metric">>).
 -compile({no_auto_import,[time/0]}).

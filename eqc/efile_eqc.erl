@@ -1,7 +1,9 @@
 -module(efile_eqc).
 
 -include_lib("eqc/include/eqc.hrl").
--compile(export_all).
+-export([prop_comp_file/0,
+         prop_fold_file/0]).
+-export([new/1, renew/2, append/3]).
 
 -define(DIR, ".qcdata").
 -define(M, <<"metric">>).
