@@ -19,3 +19,7 @@ current_counterexample.eqc
 .eqc-info
 .qcdata
 doc/*
+TEST-*
+*~
+libs/
+rebar3.crashdump
