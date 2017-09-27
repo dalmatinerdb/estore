@@ -365,7 +365,7 @@ open_estore(EStore = #estore{dir = Dir}, create) ->
         {ok, _} ->
             {error, bad_index};
         %% If the file doens't exist we careate it
-        {error,enoent} ->
+        {error, enoent} ->
             file:write_file(IdxFile, ExpectedIdx),
             {ok, EStore}
     end;
@@ -381,8 +381,8 @@ open_estore(EStore = #estore{dir = Dir}, open) ->
         {ok, _} ->
             {error, bad_index};
         %% If the file is not found we can't open.
-        {error,enoent} ->
-            {error,enoent}
+        {error, enoent} ->
+            {error, enoent}
     end.
 
 -spec to_ns(tagged_time()) ->
