@@ -2,33 +2,32 @@ variables:
   ERL_LIBS: "./libs"
 
 stages:
-  - lint
-  - dialyzer
-  - eunit
+  - test
   - eqc
+  - upstream
 
-lint:
-  stage: lint
+test:
+  stage: test
   script:
     - ./rebar3 as lint lint
   tags:
-    - erlagn-19
+    - erlang-19
 
 dialyzer:
-  stage: dialyzer
+  stage: test
   script:
     - ./rebar3 dialyzer
   tags:
-    - erlagn-19
+    - erlang-19
 
 eunit:
-  stage: eunit
+  stage: test
   script:
     - ./rebar3 eunit
   tags:
-    - erlagn-19
+    - erlang-19
 
-.eqc_template: &eqc_definition
+eqc:
   stage: eqc
   script:
     - mkdir libs
@@ -38,22 +37,10 @@ eunit:
     - cd ..
     - epmd &
     - ./rebar3 as eqc eqc
-
-eqc-smartos:
-  <<: *eqc_definition
   tags:
-    - smartos
+    - erlang-19
 
-eqc-bsd:
-  <<: *eqc_definition
-  tags:
-    - bsd
-
-eqc-linux:
-  <<: *eqc_definition
-  image: erlang:20
-  before_script:
-    - apt-get update
-    - apt-get install -y --no-install-recommends unzip
-  tags:
-    - linux
+upstream:
+  stage: upstream
+  script:
+    - 'curl --request POST --form "token=$CI_JOB_TOKEN" --form "ref=test" --form "variables[DOWNSTREAM_LIBRARY]=$CI_PROJECT_NAME" https://gitlab.com/api/v4/projects/$DDB_PID/trigger/pipeline'
